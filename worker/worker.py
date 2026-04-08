@@ -53,7 +53,7 @@ def run_file(url, mc, xw):
                 "phi": ev["lep_phi"][:,:4],
                 "e":   ev["lep_e"][:,:4],
             })
-            m = ak.to_numpy(sum(p[:,i] for i in range(4)).M)
+            m = ak.to_numpy((p[:,0]+p[:,1]+p[:,2]+p[:,3]).M)
 
             if mc:
                 # sherpa samples have huge raw weights so just use sign
