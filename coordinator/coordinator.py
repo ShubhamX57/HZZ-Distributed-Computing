@@ -133,13 +133,13 @@ def make_plot(hists, path):
     ax.set_xlabel(r"4-lepton mass $m_{4\ell}$ [GeV]", fontsize=13, x=1, ha="right")
     ax.set_ylabel(f"Events / {bw} GeV", y=1, ha="right")
 
-    for y, txt, kw in [
-        (0.95, "ATLAS Open Data",  {}),
-        (0.89, "for education",    {"style":"italic","fontsize":11}),
+    for y, s, kw in [
+        (0.95, "ATLAS Open Data",  {"fontsize":14}),
+        (0.89, "for education",    {"fontsize":11,"style":"italic"}),
         (0.83, r"$\sqrt{s}=13\ \mathrm{TeV},\ \int\mathcal{L}\,dt=36.6\ \mathrm{fb}^{-1}$", {"fontsize":12}),
         (0.77, r"$H \rightarrow ZZ^* \rightarrow 4\ell$", {"fontsize":13}),
     ]:
-        ax.text(0.05, y, txt, transform=ax.transAxes, va="top", fontsize=14, **kw)
+        ax.text(0.05, y, s, transform=ax.transAxes, va="top", **kw)
 
     ax.legend(frameon=False, fontsize=10, loc="upper right")
     plt.tight_layout()
