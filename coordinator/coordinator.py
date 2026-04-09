@@ -10,18 +10,23 @@ import atlasopenmagic as atom
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [coord] %(message)s")
 log = logging.getLogger(__name__)
 
-lumi    = 36.6       # fb-1
-skim    = "exactly4lep"
-rel     = "2025e-13tev-beta"
-xlo, xhi, bw = 80, 250, 5
-nb      = (xhi - xlo) // bw
 
-# samples to analyse
+lumi  = 36.6       # fb-1, full Run 2
+skim  = "exactly4lep"
+rel   = "2025e-13tev-beta"
+
+
+# 2.5 GeV bins to match the notebook 
+xlo, xhi, bw = 80, 250, 2.5
+nb = int((xhi - xlo) / bw)
+
+
+# sample definitions matching notebook exactly
 smp = {
     "Data": {
         "dids": ["data"], "col": "black", "type": "data"
     },
-    r"Background $Z,t\bar{t}$": {
+    r"Background $Z,t\bar{t},t\bar{t}+V,VVV$": {
         "dids": [410470,410155,410218,410219,412043,
                  364243,364242,364246,364248,
                  700320,700321,700322,700323,700324,700325],
@@ -36,17 +41,6 @@ smp = {
     },
 }
 
-
-def xsec_w(did, lumi_val):
-    try:
-        m  = atom.get_metadata(did)
-        xs = m.get("crossSection") or m.get("crossSectionPb")
-        sw = m.get("sumWeights")   or m.get("totalEvents")
-        if xs and sw and float(sw) > 0:
-            return lumi_val * 1000.0 * float(xs) / float(sw)
-    except Exception as e:
-        log.warning("metadata fail %s: %s", did, e)
-    return 1.0
 
 
 def wait_rabbit(host):
@@ -71,7 +65,7 @@ def send_tasks(ch, data):
                 "sample_name": name,
                 "sample_type": smp[name]["type"],
                 "file_url":    url,
-                "xsec_weight": info.get("xsec_weight", 1.0),
+                "lumi":        lumi,   # pass lumi to workers
                 "color":       smp[name]["col"],
             }
             tasks.append(t)
@@ -81,6 +75,7 @@ def send_tasks(ch, data):
     return tasks
 
 
+    
 def get_results(ch, total):
     hists = {n: np.zeros(nb) for n in smp}
     done  = 0
@@ -99,38 +94,57 @@ def get_results(ch, total):
     return hists
 
 
+
 def significance(hists):
-    cx     = np.linspace(xlo+bw/2, xhi-bw/2, nb)
-    win    = (cx >= 115) & (cx <= 130)
-    n_sig  = sum(hists[k][win].sum() for k in hists if "Signal" in k)
-    n_bg   = sum(hists[k][win].sum() for k in hists
-                 if smp[k]["type"] == "mc" and "Signal" not in k)
+    # notebook uses bins 17:20 (117.5 - 132.5 GeV with 2.5 GeV bins)
+    sig_name = r"Signal ($m_H$ = 125 GeV)"
+    bg_names = [k for k in smp if smp[k]["type"] == "mc" and "Signal" not in k]
+
+    mc_tot = sum(hists[k] for k in bg_names)
+    n_sig  = hists[sig_name][17:20].sum() + mc_tot[17:20].sum()
+    n_bg   = mc_tot[17:20].sum()
     sig    = n_sig / np.sqrt(n_bg + 0.3*n_bg**2) if n_bg > 0 else 0.0
-    log.info("n_sig=%.1f  n_bg=%.1f  sig=%.3f", n_sig, n_bg, sig)
+    log.info("n_sig=%.2f  n_bg=%.2f  sig=%.3f", n_sig, n_bg, sig)
     return n_sig, n_bg, sig
 
+    
 
 def make_plot(hists, path):
-    edges = np.linspace(xlo, xhi, nb+1)
-    cx    = (edges[:-1] + edges[1:]) / 2
+    edges = np.arange(xlo, xhi + bw, bw)
+    cx    = edges[:-1] + bw/2
 
-    fig, ax = plt.subplots(figsize=(8,6))
+    fig, ax = plt.subplots(figsize=(12, 8))
 
-    mc_n = [k for k in smp if smp[k]["type"] == "mc"]
-    ax.stackplot(cx, [hists[k] for k in mc_n],
-                 labels=mc_n, colors=[smp[k]["col"] for k in mc_n], step="mid")
+    # data
+    data_y     = hists["Data"]
+    data_err   = np.sqrt(data_y)
+    ax.errorbar(cx, data_y, yerr=data_err, fmt="ko", ms=4, label="Data", zorder=5)
 
-    d    = hists["Data"]
-    mask = d > 0
-    ax.errorbar(cx[mask], d[mask], yerr=np.sqrt(d[mask]),
-                fmt="ko", ms=4, label="Data", zorder=5)
+    # MC backgrounds stacked
+    bg_names = [k for k in smp if smp[k]["type"] == "mc" and "Signal" not in k]
+    mc_x     = [hists[k] for k in bg_names]
+    mc_cols  = [smp[k]["col"] for k in bg_names]
+    mc_h     = ax.hist([cx]*len(mc_x), bins=edges, weights=mc_x,
+                       stacked=True, color=mc_cols, label=bg_names)
+    mc_tot   = mc_h[0][-1]
+
+    # stat uncertainty band
+    mc_err = np.sqrt(sum(hists[k]**2 for k in bg_names))  # sqrt(sum w^2) approx
+    ax.bar(cx, 2*mc_err, bottom=mc_tot - mc_err,
+           width=bw, color="none", hatch="////", alpha=0.5, label="Stat. Unc.")
+
+    # signal on top
+    sig_name = r"Signal ($m_H$ = 125 GeV)"
+    ax.hist(cx, bins=edges, weights=hists[sig_name], bottom=mc_tot,
+            color=smp[sig_name]["col"], label=sig_name)
 
     ax.set_xlim(xlo, xhi)
     ax.set_ylim(bottom=0)
     ax.xaxis.set_minor_locator(AutoMinorLocator())
     ax.yaxis.set_minor_locator(AutoMinorLocator())
     ax.tick_params(which="both", direction="in", top=True, right=True)
-    ax.set_xlabel(r"4-lepton mass $m_{4\ell}$ [GeV]", fontsize=13, x=1, ha="right")
+    ax.set_xlabel(r"4-lepton invariant mass $m_{4\ell}$ [GeV]",
+                  fontsize=13, x=1, ha="right")
     ax.set_ylabel(f"Events / {bw} GeV", y=1, ha="right")
 
     for y, s, kw in [
@@ -148,6 +162,7 @@ def make_plot(hists, path):
     log.info("plot saved: %s", path)
 
 
+
 def main():
     host   = os.environ.get("RABBITMQ_HOST", "localhost")
     outdir = os.environ.get("RESULTS_DIR", "/results")
@@ -157,13 +172,10 @@ def main():
     atom.set_release(rel)
     data = atom.build_dataset(smp, skim=skim, protocol="https", cache=True)
 
-    # compute xsec weights for mc samples
+    # no external xsec weight — the files have xsec/kfac/filteff/sum_of_weights
+    # I pass lumi only; workers compute weights from in-file branches
     for name, info in data.items():
-        if smp[name]["type"] == "mc":
-            ws = [xsec_w(d, lumi) for d in smp[name]["dids"]]
-            info["xsec_weight"] = float(np.mean(ws)) if ws else 1.0
-        else:
-            info["xsec_weight"] = 1.0
+        info["xsec_weight"] = 1.0  # unused now, kept for compat
 
     conn = wait_rabbit(host)
     ch   = conn.channel()
@@ -177,11 +189,12 @@ def main():
     n_sig, n_bg, sig = significance(hists)
 
     with open(f"{outdir}/significance.txt", "w") as f:
-        f.write(f"n_sig = {n_sig:.1f}\nn_bg  = {n_bg:.1f}\nsig   = {sig:.3f} sigma\n")
+        f.write(f"n_sig = {n_sig:.2f}\nn_bg  = {n_bg:.2f}\nsig   = {sig:.3f} sigma\n")
 
     make_plot(hists, f"{outdir}/HZZ_invariant_mass.png")
     log.info("all done — sig = %.3f sigma", sig)
     conn.close()
+
 
 
 if __name__ == "__main__":
