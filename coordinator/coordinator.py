@@ -10,16 +10,13 @@ import atlasopenmagic as atom
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [coord] %(message)s")
 log = logging.getLogger(__name__)
 
-
 lumi  = 36.6       # fb-1, full Run 2
 skim  = "exactly4lep"
 rel   = "2025e-13tev-beta"
 
-
-# 2.5 GeV bins to match the notebook 
+# 2.5 GeV bins to match the notebook exactly
 xlo, xhi, bw = 80, 250, 2.5
 nb = int((xhi - xlo) / bw)
-
 
 # sample definitions matching notebook exactly
 smp = {
@@ -40,7 +37,6 @@ smp = {
         "col": "#00cdff", "type": "mc"
     },
 }
-
 
 
 def wait_rabbit(host):
@@ -75,7 +71,6 @@ def send_tasks(ch, data):
     return tasks
 
 
-    
 def get_results(ch, total):
     hists = {n: np.zeros(nb) for n in smp}
     done  = 0
@@ -94,7 +89,6 @@ def get_results(ch, total):
     return hists
 
 
-
 def significance(hists):
     # notebook uses bins 17:20 (117.5 - 132.5 GeV with 2.5 GeV bins)
     sig_name = r"Signal ($m_H$ = 125 GeV)"
@@ -107,7 +101,6 @@ def significance(hists):
     log.info("n_sig=%.2f  n_bg=%.2f  sig=%.3f", n_sig, n_bg, sig)
     return n_sig, n_bg, sig
 
-    
 
 def make_plot(hists, path):
     edges = np.arange(xlo, xhi + bw, bw)
@@ -162,7 +155,6 @@ def make_plot(hists, path):
     log.info("plot saved: %s", path)
 
 
-
 def main():
     host   = os.environ.get("RABBITMQ_HOST", "localhost")
     outdir = os.environ.get("RESULTS_DIR", "/results")
@@ -173,7 +165,7 @@ def main():
     data = atom.build_dataset(smp, skim=skim, protocol="https", cache=True)
 
     # no external xsec weight — the files have xsec/kfac/filteff/sum_of_weights
-    # I pass lumi only; workers compute weights from in-file branches
+    # we pass lumi only; workers compute weights from in-file branches
     for name, info in data.items():
         info["xsec_weight"] = 1.0  # unused now, kept for compat
 
@@ -194,7 +186,6 @@ def main():
     make_plot(hists, f"{outdir}/HZZ_invariant_mass.png")
     log.info("all done — sig = %.3f sigma", sig)
     conn.close()
-
 
 
 if __name__ == "__main__":
