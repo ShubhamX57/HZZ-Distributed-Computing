@@ -8,17 +8,14 @@ import pika
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [worker] %(message)s")
 log = logging.getLogger(__name__)
 
-
-# histogram range — 2.5 GeV bins 
+# histogram range — 2.5 GeV bins matching the notebook
 xlo, xhi, bw = 80, 250, 2.5
 nb = int((xhi - xlo) / bw)
-
 
 # branches to read (notebook variables)
 base_vars = ["lep_pt","lep_eta","lep_phi","lep_e","lep_charge","lep_type",
              "trigE","trigM","lep_isTrigMatched","lep_isLooseID",
              "lep_isMediumID","lep_isLooseIso"]
-
 
 # weight branches stored in the MC files (notebook weight_variables)
 mc_vars = ["filteff","kfac","xsec","mcWeight",
@@ -27,12 +24,10 @@ mc_vars = ["filteff","kfac","xsec","mcWeight",
            "sum_of_weights"]
 
 
-
 def avail(keys, want):
     return [k for k in want if k in keys]
 
 
-  
 def run_file(url, mc, lumi):
     hist = np.zeros(nb)
     nok  = 0
@@ -42,12 +37,6 @@ def run_file(url, mc, lumi):
         bvars = avail(keys, base_vars)
         wvars = avail(keys, mc_vars) if mc else []
         cols  = list(set(bvars + wvars))
-
-        # Extract the file‑level sum_of_weights (constant for the whole file)
-        if mc and "sum_of_weights" in wvars:
-            sumw_global = t["sum_of_weights"].array()[0]   # scalar
-        else:
-            sumw_global = 1.0
 
         for ev in t.iterate(cols, library="ak", step_size=1000):
             # trigger cuts (if branches present)
@@ -59,7 +48,6 @@ def run_file(url, mc, lumi):
                 ev = ev[ak.sum(ev.lep_isTrigMatched, axis=1) >= 1]
             if not len(ev): continue
 
-          
             # pT cuts on leading three leptons (notebook: >20, >15, >10 GeV)
             ev = ev[ev["lep_pt"][:,0] > 20]
             if not len(ev): continue
@@ -68,7 +56,6 @@ def run_file(url, mc, lumi):
             ev = ev[ev["lep_pt"][:,2] > 10]
             if not len(ev): continue
 
-          
             # ID / isolation cut
             if all(b in keys for b in ["lep_isLooseID","lep_isMediumID","lep_isLooseIso","lep_type"]):
                 pid = ev.lep_type
@@ -79,14 +66,12 @@ def run_file(url, mc, lumi):
                 ev = ev[mask]
             if not len(ev): continue
 
-          
             # flavour cut: 4e=44, 2e2mu=48, 4mu=52
             lt  = ev["lep_type"]
             fs  = lt[:,0]+lt[:,1]+lt[:,2]+lt[:,3]
             ev  = ev[(fs==44)|(fs==48)|(fs==52)]
             if not len(ev): continue
 
-          
             # charge cut
             ev = ev[ev["lep_charge"][:,0]+ev["lep_charge"][:,1]+
                     ev["lep_charge"][:,2]+ev["lep_charge"][:,3] == 0]
@@ -101,8 +86,9 @@ def run_file(url, mc, lumi):
 
             # weights
             if mc:
-                # I used the global sum_of_weights, then multiply by event‑level factors
-                w = lumi * 1000.0 / sumw_global
+                # full notebook formula: lumi*1000/sum_of_weights * prod(abs(vars))
+                sw = ak.to_numpy(ev["sum_of_weights"]).astype(float) if "sum_of_weights" in wvars else np.ones(len(m))
+                w  = lumi * 1000.0 / sw
                 for var in ["filteff","kfac","xsec","mcWeight",
                             "ScaleFactor_PILEUP","ScaleFactor_ELE",
                             "ScaleFactor_MUON","ScaleFactor_LepTRIGGER"]:
