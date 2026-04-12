@@ -38,6 +38,12 @@ def run_file(url, mc, lumi):
         wvars = avail(keys, mc_vars) if mc else []
         cols  = list(set(bvars + wvars))
 
+        # Extract the file‑level sum_of_weights (constant for the whole file)
+        if mc and "sum_of_weights" in wvars:
+            sumw_global = t["sum_of_weights"].array()[0]   # scalar
+        else:
+            sumw_global = 1.0
+
         for ev in t.iterate(cols, library="ak", step_size=1000):
             # trigger cuts (if branches present)
             if "trigE" in keys and "trigM" in keys:
@@ -86,9 +92,8 @@ def run_file(url, mc, lumi):
 
             # weights
             if mc:
-                # full notebook formula: lumi*1000/sum_of_weights * prod(abs(vars))
-                sw = ak.to_numpy(ev["sum_of_weights"]).astype(float) if "sum_of_weights" in wvars else np.ones(len(m))
-                w  = lumi * 1000.0 / sw
+                # Use the global sum_of_weights, then multiply by event‑level factors
+                w = lumi * 1000.0 / sumw_global
                 for var in ["filteff","kfac","xsec","mcWeight",
                             "ScaleFactor_PILEUP","ScaleFactor_ELE",
                             "ScaleFactor_MUON","ScaleFactor_LepTRIGGER"]:
