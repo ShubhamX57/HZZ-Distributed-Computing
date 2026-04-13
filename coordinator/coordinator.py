@@ -121,15 +121,16 @@ def make_plot(hists, path):
                        stacked=True, color=mc_cols, label=bg_names)
     mc_tot   = mc_h[0][-1]
 
-    # stat uncertainty band
-    mc_err = np.sqrt(sum(hists[k]**2 for k in bg_names))  # sqrt(sum w^2) approx
-    ax.bar(cx, 2*mc_err, bottom=mc_tot - mc_err,
-           width=bw, color="none", hatch="////", alpha=0.5, label="Stat. Unc.")
-
-    # signal on top
+    # signal on top of MC stack
     sig_name = r"Signal ($m_H$ = 125 GeV)"
     ax.hist(cx, bins=edges, weights=hists[sig_name], bottom=mc_tot,
-            color=smp[sig_name]["col"], label=sig_name)
+            color=smp[sig_name]["col"], label=sig_name, zorder=3)
+
+    # stat uncertainty band — sqrt(mc_tot) Poisson, hatch drawn with black edges
+    mc_err = np.sqrt(mc_tot)
+    ax.bar(cx, 2*mc_err, bottom=mc_tot - mc_err,
+           width=bw, color="none", edgecolor="black", linewidth=0,
+           hatch="////", alpha=0.5, label="Stat. Unc.", zorder=4)
 
     ax.set_xlim(xlo, xhi)
     ax.set_ylim(bottom=0)
@@ -173,6 +174,7 @@ def main():
     ch   = conn.channel()
     ch.queue_declare(queue="tasks",   durable=True)
     ch.queue_declare(queue="results", durable=True)
+    ch.queue_purge("tasks")    # clear any leftover tasks from a previous run
     ch.queue_purge("results")
 
     tasks = send_tasks(ch, data)
