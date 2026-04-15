@@ -151,10 +151,12 @@ HZZ-Distributed-Computing/
 │   └── requirements.txt
 ├── rabbitmq/
 │   └── init.sh                 # Dead-letter queue policy setup
-├── docker-compose.yml          # Full service orchestration
-├── HZZ_invariant_mass.png      # Output plot (generated at runtime)
-├── significance.txt            # Output significance (generated at runtime)
-└── README.md
+├──  results
+│   ├── coordinator_checkpoint.json   # Checkpoint for rerun
+│   ├── HZZ_invariant_mass.png        # Output plot (generated at runtime)
+│   └── significance.txt              # Output significance (generated at runtime)         
+├── docker-compose.yml                # Full service orchestration
+└── README.md 
 ```
 
 ---
