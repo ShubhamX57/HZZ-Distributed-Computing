@@ -10,6 +10,9 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - ./rabbitmq/init.sh:/init.sh
+    command: sh -c "/init.sh & rabbitmq-server"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping", "-q"]
       interval: 10s
@@ -28,8 +31,10 @@ services:
     environment:
       - RABBITMQ_HOST=rabbitmq
       - RESULTS_DIR=/results
+    ports:
+      - "8000:8000"   # Prometheus metrics endpoint
     volumes:
-      - results_vol:/results
+      - ./results:/results   # <-- Bind mount to host folder ./results
     networks:
       - hzz_net
     restart: "no"
@@ -41,12 +46,14 @@ services:
         condition: service_healthy
     environment:
       - RABBITMQ_HOST=rabbitmq
+    volumes:
+      - cache_vol:/root/.cache/simplecache   # shared ROOT file cache
     networks:
       - hzz_net
     restart: on-failure
 
 volumes:
-  results_vol:
+  cache_vol:   # Keep only the shared cache volume
 
 networks:
   hzz_net:
