@@ -4,48 +4,64 @@ import uproot
 import awkward as ak
 import vector
 import pika
+import logging
+import json_logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [worker] %(message)s")
+
+# Configure standard logging first
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [app] %(message)s")
+
+
+
+# Then initialize JSON logging (it will wrap the existing handlers)
+json_logging.init_non_web(enable_json=True)
 log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
 
-# histogram range — 2.5 GeV bins matching the notebook
+
+
 xlo, xhi, bw = 80, 250, 2.5
 nb = int((xhi - xlo) / bw)
 
-# branches to read (notebook variables)
+
+
 base_vars = ["lep_pt","lep_eta","lep_phi","lep_e","lep_charge","lep_type",
              "trigE","trigM","lep_isTrigMatched","lep_isLooseID",
              "lep_isMediumID","lep_isLooseIso"]
 
-# weight branches stored in the MC files (notebook weight_variables)
+
 mc_vars = ["filteff","kfac","xsec","mcWeight",
            "ScaleFactor_PILEUP","ScaleFactor_ELE",
            "ScaleFactor_MUON","ScaleFactor_LepTRIGGER",
            "sum_of_weights"]
 
 
+
 def avail(keys, want):
     return [k for k in want if k in keys]
 
 
+
 def run_file(url, mc, lumi):
     hist = np.zeros(nb)
+    hist_sq = np.zeros(nb)
     nok  = 0
 
-    with uproot.open(url + ":analysis") as t:
+
+    with uproot.open(url + ":analysis", timeout=600) as t:
         keys  = t.keys()
         bvars = avail(keys, base_vars)
         wvars = avail(keys, mc_vars) if mc else []
         cols  = list(set(bvars + wvars))
 
-        # Extract the file‑level sum_of_weights (constant for the whole file)
+
         if mc and "sum_of_weights" in wvars:
-            sumw_global = t["sum_of_weights"].array()[0]   # scalar
+            sumw_global = t["sum_of_weights"].array()[0]
         else:
             sumw_global = 1.0
 
+
         for ev in t.iterate(cols, library="ak", step_size=1000):
-            # trigger cuts (if branches present)
             if "trigE" in keys and "trigM" in keys:
                 ev = ev[ev.trigE | ev.trigM]
             if not len(ev): continue
@@ -54,7 +70,7 @@ def run_file(url, mc, lumi):
                 ev = ev[ak.sum(ev.lep_isTrigMatched, axis=1) >= 1]
             if not len(ev): continue
 
-            # pT cuts on leading three leptons (notebook: >20, >15, >10 GeV)
+
             ev = ev[ev["lep_pt"][:,0] > 20]
             if not len(ev): continue
             ev = ev[ev["lep_pt"][:,1] > 15]
@@ -62,7 +78,7 @@ def run_file(url, mc, lumi):
             ev = ev[ev["lep_pt"][:,2] > 10]
             if not len(ev): continue
 
-            # ID / isolation cut
+
             if all(b in keys for b in ["lep_isLooseID","lep_isMediumID","lep_isLooseIso","lep_type"]):
                 pid = ev.lep_type
                 eid = ev.lep_isLooseID
@@ -72,27 +88,22 @@ def run_file(url, mc, lumi):
                 ev = ev[mask]
             if not len(ev): continue
 
-            # flavour cut: 4e=44, 2e2mu=48, 4mu=52
             lt  = ev["lep_type"]
             fs  = lt[:,0]+lt[:,1]+lt[:,2]+lt[:,3]
             ev  = ev[(fs==44)|(fs==48)|(fs==52)]
             if not len(ev): continue
 
-            # charge cut
             ev = ev[ev["lep_charge"][:,0]+ev["lep_charge"][:,1]+
                     ev["lep_charge"][:,2]+ev["lep_charge"][:,3] == 0]
             if not len(ev): continue
 
             nok += len(ev)
 
-            # 4-lepton invariant mass (pt/e already in GeV)
             p = vector.zip({"pt":ev["lep_pt"][:,:4],"eta":ev["lep_eta"][:,:4],
                             "phi":ev["lep_phi"][:,:4],"E":ev["lep_e"][:,:4]})
             m = ak.to_numpy((p[:,0]+p[:,1]+p[:,2]+p[:,3]).M)
 
-            # weights
             if mc:
-                # Use the global sum_of_weights, then multiply by event‑level factors
                 w = lumi * 1000.0 / sumw_global
                 for var in ["filteff","kfac","xsec","mcWeight",
                             "ScaleFactor_PILEUP","ScaleFactor_ELE",
@@ -104,9 +115,16 @@ def run_file(url, mc, lumi):
 
             h, _ = np.histogram(m, bins=nb, range=(xlo, xhi), weights=w)
             hist += h
+            if mc:
+                h_sq, _ = np.histogram(m, bins=nb, range=(xlo, xhi), weights=w**2)
+                hist_sq += h_sq
 
     log.info("passed=%d  sum=%.2f", nok, hist.sum())
-    return hist
+    return hist, hist_sq
+
+
+
+
 
 
 def connect(host):
@@ -122,6 +140,8 @@ def connect(host):
     raise RuntimeError("can't reach rabbitmq")
 
 
+
+
 def main():
     host = os.environ.get("RABBITMQ_HOST", "localhost")
     conn = connect(host)
@@ -135,12 +155,16 @@ def main():
         mc = t["sample_type"] == "mc"
         log.info("got %s | %s", t["task_id"][:8], t["sample_name"])
         try:
-            h   = run_file(t["file_url"], mc, t["lumi"])
+            h, h_sq = run_file(t["file_url"], mc, t["lumi"])
             out = {**t, "hist_values": h.tolist(), "success": True, "error": None}
+            if mc:
+                out["hist_sqweights"] = h_sq.tolist()
         except Exception:
             err = traceback.format_exc()
             log.error("failed:\n%s", err)
             out = {**t, "hist_values": np.zeros(nb).tolist(), "success": False, "error": err}
+            if mc:
+                out["hist_sqweights"] = np.zeros(nb).tolist()
 
         ch.basic_publish("", "results", json.dumps(out),
                          pika.BasicProperties(delivery_mode=2))
@@ -149,6 +173,8 @@ def main():
     ch.basic_consume("tasks", cb)
     log.info("waiting for tasks ...")
     ch.start_consuming()
+
+
 
 
 if __name__ == "__main__":
