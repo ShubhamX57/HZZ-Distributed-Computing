@@ -238,7 +238,7 @@ The obtained significance of **4.5 σ** matches the notebook result within round
 ## Acknowledgements
 
 - The **ATLAS Collaboration** for providing the Open Data and the reference analysis notebook.
-- **Jim Brooke** (University of Bristol) for project supervision and guidance.
+- **[Jim Brooke](https://www.bristol.ac.uk/people/person/Jim-Brooke-6f81fe6d-b268-4244-820f-4c5a1a8935c2/)** (University of Bristol) for project supervision and guidance.
 
 ---
 
