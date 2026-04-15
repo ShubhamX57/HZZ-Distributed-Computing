@@ -112,8 +112,9 @@ chmod +x rabbitmq/init.sh
 
 ### 3 — Build and run
 
+#### Start with 4 parallel workers (adjust N as needed)
 ```bash
-# Start with 4 parallel workers (adjust N as needed)
+
 docker compose up --build --scale worker=4
 ```
 
@@ -128,9 +129,9 @@ The coordinator automatically discovers and enqueues all 40 ROOT files. Workers 
 | `results/coordinator_checkpoint.json` | Checkpoint used for crash recovery |
 
 ### 5 — Stop and clean up
-
+#### Remove containers and cached volumes
 ```bash
-# Remove containers and cached volumes
+
 docker compose down -v
 ```
 
